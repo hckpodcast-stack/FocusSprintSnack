@@ -1,9 +1,0 @@
-{
-  "clientId": "863871458565-32nruta2g38q1vmer2dqghbrrkqleit3.apps.googleusercontent.com",
-  "scopes": [
-    "openid",
-    "email",
-    "profile",
-    "https://www.googleapis.com/auth/calendar.readonly"
-  ]
-}

@@ -1,5 +1,5 @@
 // services/AuthService
-import { startAsync, makeRedirectUri } from 'expo-auth-session';
+import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
@@ -12,35 +12,46 @@ const discovery = {
 };
 
 export async function startGoogleAuth() {
-  const isWeb = Platform.OS === 'web';
-
-  const redirectUri = (() => {
-    if (isWeb) {
-      return makeRedirectUri({
-        path: '',
-      });
-    }
-
-    // Expo Go requires the AuthSession proxy while standalone builds should
-    // use the registered redirect URL that was previously hard-coded.
-    return Constants.appOwnership === 'expo'
-      ? makeRedirectUri({ useProxy: true })
-      : 'https://auth.expo.io/@hckpodcast/great-red-pastry';
-  })();
+  // Prefer explicit HTTPS override if provided; otherwise use the Expo proxy.
+  const hardcoded = process.env.EXPO_PUBLIC_REDIRECT_URI || GOOGLE.redirectUri;
+  const redirectUri = hardcoded || AuthSession.makeRedirectUri({ useProxy: true });
 
   console.log('Redirect URI:', redirectUri);
 
-  const clientId = isWeb ? GOOGLE.webClientId : GOOGLE.clientId;
-  const authUrl =
-    `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}` +
-    `&response_type=token` +
-    `&scope=${encodeURIComponent(GOOGLE.scopes.join(' '))}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&include_granted_scopes=true&prompt=select_account`;
+  const clientId = GOOGLE.clientId;
+  const discovery = { authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth' };
 
-  const result = await startAsync({ authUrl, returnUrl: redirectUri });
+  const request = new AuthSession.AuthRequest({
+    clientId,
+    redirectUri,
+    responseType: AuthSession.ResponseType.Token,
+    scopes: GOOGLE.scopes,
+    // Ask account picker to show
+    prompt: 'select_account',
+    // Preserve previously granted scopes
+    extraParams: { include_granted_scopes: 'true' },
+  });
 
-  if (result.type !== 'success' || !result.authentication?.accessToken) {
+  const result = await request.promptAsync(discovery, { useProxy: true });
+
+  // Extract the token shape returned by AuthSession (differs by method)
+  let accessToken;
+  let issuedAtSec;
+  let expiresInSec;
+
+  if (result.type === 'success') {
+    if (result.params?.access_token) {
+      accessToken = result.params.access_token;
+      issuedAtSec = Math.floor(Date.now() / 1000);
+      expiresInSec = Number(result.params.expires_in ?? 3600);
+    } else if (result.authentication?.accessToken) {
+      accessToken = result.authentication.accessToken;
+      issuedAtSec = result.authentication.issuedAt ?? Math.floor(Date.now() / 1000);
+      expiresInSec = result.authentication.expiresIn ?? 3600;
+    }
+  }
+
+  if (!accessToken) {
     // user cancelled or something failed; normalize the response
     const reason =
       result.type === 'dismiss'
@@ -51,16 +62,8 @@ export async function startGoogleAuth() {
           result.params?.error_description ||
           result.params?.error ||
           'auth_failed';
-    // Common pitfall on web: redirect URI must be registered in Google console
-    if (isWeb && reason === 'access_denied') {
-      throw new Error('redirect_uri_not_configured');
-    }
     throw new Error(reason);
   }
-
-  const accessToken = result.authentication.accessToken;
-  const issuedAtSec = result.authentication.issuedAt ?? Math.floor(Date.now() / 1000);
-  const expiresInSec = result.authentication.expiresIn ?? 3600;
   const expiresAt = (issuedAtSec + expiresInSec) * 1000;
 
   // Fetch basic profile

@@ -1,5 +1,6 @@
 {
   "clientId": "863871458565-32nruta2g38q1vmer2dqghbrrkqleit3.apps.googleusercontent.com",
+  "redirectUri": "https://auth.expo.io/@hckpodcast/great-red-pastry",
   "scopes": [
     "openid",
     "email",
